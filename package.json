@@ -1,0 +1,57 @@
+{
+  "name": "najah-erp-whatsapp",
+  "version": "1.0.0",
+  "description": "WhatsApp Integration Service for Najah ERP",
+  "private": true,
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node --max-old-space-size=400 .",
+    "dev": "node . --dev",
+    "deploy": "npm run deploy:prod",
+    "deploy:prod": "powershell -ExecutionPolicy Bypass -File ./deployment/publish-whatsapp.ps1",
+    "deploy:staging": "powershell -ExecutionPolicy Bypass -File ./deployment/publish-whatsapp.ps1 -Environment Staging",
+    "deploy:dev": "powershell -ExecutionPolicy Bypass -File ./deployment/publish-whatsapp.ps1 -Environment Development",
+    "rollback": "powershell -ExecutionPolicy Bypass -File ./deployment/rollback.ps1",
+    "rollback:list": "powershell -ExecutionPolicy Bypass -File ./deployment/rollback.ps1 -ListVersions",
+    "rollback:interactive": "powershell -ExecutionPolicy Bypass -File ./deployment/rollback.ps1",
+    "install:prod": "npm ci --omit=dev",
+    "clean": "if exist node_modules rmdir /s /q node_modules && if exist package-lock.json del package-lock.json",
+    "logs": "powershell -Command \"if (Test-Path 'G:/Publish/Najah.ERP.Whatsapp/current/logs/*.log') { Get-Content 'G:/Publish/Najah.ERP.Whatsapp/current/logs/*.log' -Tail 50 } else { Write-Host 'No log files found. Logs will be created when the application writes them.' -ForegroundColor Yellow }\"",
+    "logs:error": "powershell -Command \"if (Test-Path 'G:/Publish/Najah.ERP.Whatsapp/current/logs/*.log') { Get-Content 'G:/Publish/Najah.ERP.Whatsapp/current/logs/*.log' | Select-String 'error' -Context 2,2 } else { Write-Host 'No log files found.' -ForegroundColor Yellow }\"",
+    "logs:iis": "powershell -Command \"if (Test-Path 'G:/Publish/Najah.ERP.Whatsapp/current/iisnode/*.txt') { Get-Content (Get-ChildItem 'G:/Publish/Najah.ERP.Whatsapp/current/iisnode/*.txt' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName -Tail 50 } else { Write-Host 'No IIS node logs found. Logs will be created when errors occur.' -ForegroundColor Yellow }\"",
+    "status": "powershell -Command \"Get-WebAppPoolState -Name 'NajahERP-WhatsApp-Production'\"",
+    "status:all": "npm run status && curl -s http://localhost:8090/status || echo 'Service not responding'",
+    "sessions": "powershell -Command \"Get-ChildItem 'G:/Publish/Najah.ERP.Whatsapp/current/sessions' | Select-Object Name, LastWriteTime\"",
+    "help": "powershell -Command \"Write-Host 'Available commands:' -ForegroundColor Cyan; Write-Host '  npm run dev         - Start in development mode'; Write-Host '  npm run deploy      - Deploy to production'; Write-Host '  npm run rollback    - Rollback to previous version'; Write-Host '  npm run logs        - View recent logs'; Write-Host '  npm run status      - Check service status'; Write-Host '  npm run sessions    - List WhatsApp sessions'\""
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "api",
+    "najah-erp"
+  ],
+  "author": "Najah Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.21",
+    "dotenv": "^16.0.0",
+    "express": "^4.17.2",
+    "express-validator": "^6.14.0",
+    "futoin-hkdf": "^1.5.3",
+    "node-cleanup": "^2.1.2",
+    "qrcode": "^1.5.0",
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.5.0",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-config-xo": "^0.39.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "prettier": "^2.5.1"
+  }
+}

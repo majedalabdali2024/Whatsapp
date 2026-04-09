@@ -1,0 +1,87 @@
+<html>
+<head>
+    <title>iisnode logs</title>
+    <style type="text/css">
+        body
+        {
+            font-family: "Trebuchet MS" , Arial, Helvetica, sans-serif;
+        }
+        table
+        {
+            border-collapse: collapse;
+        }
+        td, th
+        {
+            border: 1px solid lightgray;
+            padding: 3px 7px 2px 7px;
+        }
+        th
+        {
+            text-align: left;
+            padding-top: 5px;
+            padding-bottom: 4px;
+            background-color: Gray;
+            color: #ffffff;
+        }
+        td.stderr
+        {
+            color: Red;
+        }
+    </style>
+</head>
+<body>
+    <table id="logFilesTable">
+        <tr>
+            <th>
+                Computer name
+            </th>
+            <th>
+                PID
+            </th>
+            <th>
+                Type
+            </th>
+            <th>
+                Created
+            </th>
+            <th>
+                Link
+            </th>
+        </tr>
+    </table>
+    <p id="lastUpdated"></p>
+    <script type="text/javascript">
+
+        // this is replaced with actual data at runtime by code in interceptor.js
+        var logFiles = [{"file":"VMI996622-11100-stderr-1671038376847.txt","computername":"VMI996622","pid":11100,"type":"stderr","created":1671038376847},{"file":"VMI996622-11148-stderr-1671056342186.txt","computername":"VMI996622","pid":11148,"type":"stderr","created":1671056342186},{"file":"VMI996622-11444-stderr-1671038253401.txt","computername":"VMI996622","pid":11444,"type":"stderr","created":1671038253401},{"file":"VMI996622-12656-stderr-1671037928688.txt","computername":"VMI996622","pid":12656,"type":"stderr","created":1671037928688},{"file":"VMI996622-12880-stderr-1671038006774.txt","computername":"VMI996622","pid":12880,"type":"stderr","created":1671038006774},{"file":"VMI996622-3424-stderr-1671038265445.txt","computername":"VMI996622","pid":3424,"type":"stderr","created":1671038265445},{"file":"VMI996622-3600-stderr-1671038009054.txt","computername":"VMI996622","pid":3600,"type":"stderr","created":1671038009054},{"file":"VMI996622-6548-stderr-1671037840076.txt","computername":"VMI996622","pid":6548,"type":"stderr","created":1671037840076},{"file":"VMI996622-6832-stderr-1671037839788.txt","computername":"VMI996622","pid":6832,"type":"stderr","created":1671037839788},{"file":"VMI996622-7048-stderr-1671038370448.txt","computername":"VMI996622","pid":7048,"type":"stderr","created":1671038370448},{"file":"VMI996622-9840-stderr-1671037928967.txt","computername":"VMI996622","pid":9840,"type":"stderr","created":1671037928967}];
+        var lastUpdated = 1671056342227;
+        var date = new Date();
+
+        date.setTime(lastUpdated);
+        document.getElementById('lastUpdated').innerHTML = 'Index was last updated ' + date;
+
+        logFiles.sort(function (a, b) {
+            return b.created - a.created;
+        });
+
+        var logFilesTable = document.getElementById("logFilesTable");
+        for (var i = 0; i < logFiles.length; i++) {
+            var logFile = logFiles[i];
+            date.setTime(logFile.created);
+            var row = logFilesTable.insertRow(-1);
+            var computerNameCell = row.insertCell(0);
+            var pidCell = row.insertCell(1);
+            var typeCell = row.insertCell(2);
+            var dateCell = row.insertCell(3);
+            var logCell = row.insertCell(4);
+            computerNameCell.innerHTML = logFile.computername;
+            pidCell.innerHTML = logFile.pid.toString();
+            typeCell.innerHTML = logFile.type;
+            typeCell.setAttribute('class', logFile.type);
+            dateCell.innerHTML = date.toString();
+            logCell.innerHTML = '<a href="' + logFile.file + '">log</a>';
+        };
+
+    </script>
+</body>
+</html>
