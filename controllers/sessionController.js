@@ -1,4 +1,4 @@
-import { isSessionExists, createSession, getSession, deleteSession, disconnectSession, getSessionStatus } from './../whatsapp.js'
+import { isSessionExists, createSession, getSession, deleteSession, forceDeleteSession, disconnectSession, getSessionStatus, getSessionQr } from './../whatsapp.js'
 import response from './../response.js'
 
 const find = (req, res) => {
@@ -20,10 +20,35 @@ const status = (req, res) => {
     response(res, 200, true, 'Session status.', info)
 }
 
+/** Poll latest QR while pairing (Baileys refreshes QR every ~20–60s). */
+const qr = (req, res) => {
+    const { id } = req.params
+    const info = getSessionQr(id)
+
+    if (!info) {
+        return response(res, 404, false, 'Session not found.', { connected: false, qr: null })
+    }
+
+    if (info.connected) {
+        return response(res, 200, true, 'Session already connected.', info)
+    }
+
+    if (!info.qr) {
+        return response(res, 202, true, 'Waiting for QR…', info)
+    }
+
+    response(res, 200, true, 'QR code.', info)
+}
+
 const add = async (req, res) => {
     const { id, isLegacy } = req.body
+    const force = req.body.force === true || req.body.force === 'true' || req.body.force === 1 || req.body.force === '1'
 
-    if (isSessionExists(id)) {
+    if (force) {
+        await forceDeleteSession(id)
+        // brief pause so filesystem settles before recreate
+        await new Promise((r) => setTimeout(r, 400))
+    } else if (isSessionExists(id)) {
         return response(res, 409, false, 'Session already exists, please use another id.')
     }
 
@@ -68,4 +93,4 @@ const del = async (req, res) => {
     response(res, 200, true, 'The session has been successfully deleted.')
 }
 
-export { find, status, add, disconnect, del }
+export { find, status, qr, add, disconnect, del }

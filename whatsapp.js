@@ -70,13 +70,17 @@ const createSession = async (sessionId, isLegacy = false, res = null) => {
     /**
      * @type {(import('@adiwajshing/baileys').LegacySocketConfig|import('@adiwajshing/baileys').SocketConfig)}
      */
+    const createTimeoutMs = parseInt(process.env.SESSION_CREATE_TIMEOUT_MS ?? '90000', 10)
+    const qrTimeoutMs = parseInt(process.env.QR_TIMEOUT_MS ?? '60000', 10)
+
     const waConfig = {
         auth: state,
         printQRInTerminal: false,
         version,
-        connectTimeoutMs: 30000,
+        connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: undefined,
         keepAliveIntervalMs: 30000,
+        qrTimeout: qrTimeoutMs,
         browser: ['Chrome (Windows)', 'Chrome', '130.0.0.0'],
     }
 
@@ -94,7 +98,7 @@ const createSession = async (sessionId, isLegacy = false, res = null) => {
         return
     }
 
-    // Set a timeout for the HTTP response - if no QR or connection within 45s, send error
+    // HTTP wait for first QR / open — default 90s (Railway cold start + WA handshake)
     let responseTimeout = null
     if (res && !res.headersSent) {
         responseTimeout = setTimeout(() => {
@@ -102,10 +106,17 @@ const createSession = async (sessionId, isLegacy = false, res = null) => {
                 logger.warn(`Session ${sessionId} creation timed out waiting for QR/connection`);
                 response(res, 504, false, 'Session creation timed out. Please try again.')
             }
-        }, 45000)
+        }, Number.isFinite(createTimeoutMs) ? createTimeoutMs : 90000)
     }
 
-    sessions.set(sessionId, { ...wa, isLegacy, authenticated: false })
+    sessions.set(sessionId, {
+        ...wa,
+        isLegacy,
+        authenticated: false,
+        pairing: true,
+        lastQr: null,
+        lastQrAt: null,
+    })
 
     wa.ev.on('creds.update', async (...args) => {
         try {
@@ -169,7 +180,12 @@ const createSession = async (sessionId, isLegacy = false, res = null) => {
                 logger.info(`Session ${sessionId} connected successfully`);
                 // Mark session as authenticated (QR was scanned or creds restored)
                 const sess = sessions.get(sessionId)
-                if (sess) sess.authenticated = true
+                if (sess) {
+                    sess.authenticated = true
+                    sess.pairing = false
+                    sess.lastQr = null
+                    sess.lastQrAt = null
+                }
                 retries.delete(sessionId)
                 if (responseTimeout) clearTimeout(responseTimeout)
 
@@ -243,30 +259,36 @@ const createSession = async (sessionId, isLegacy = false, res = null) => {
                     responseHeadersSent: res?.headersSent
                 });
 
-                if (res && !res.headersSent) {
-                    if (responseTimeout) clearTimeout(responseTimeout)
-                    try {
-                        const qr = await toDataURL(update.qr)
-                        logger.info(`QR code converted to data URL successfully for session ${sessionId}`);
-
-                        response(res, 200, true, 'QR code received, please scan the QR code.', { qr })
-                    } catch (error) {
-                        logger.error(`Failed to create QR code data URL for session ${sessionId}`, { error: error.message });
+                let qrDataUrl = null
+                try {
+                    qrDataUrl = await toDataURL(update.qr)
+                } catch (error) {
+                    logger.error(`Failed to create QR code data URL for session ${sessionId}`, { error: error.message });
+                    if (res && !res.headersSent) {
+                        if (responseTimeout) clearTimeout(responseTimeout)
                         response(res, 500, false, 'Unable to create QR code.')
                     }
-
                     return
                 }
 
-                logger.warn(`QR code received but no response object available for session ${sessionId}, logging out`);
-                try {
-                    await wa.logout()
-                    logger.info(`Session ${sessionId} logged out after QR code without response`);
-                } catch (error) {
-                    logger.error(`Failed to logout session ${sessionId}`, { error: error.message });
-                } finally {
-                    deleteSession(sessionId, isLegacy)
+                // Always keep the latest QR for polling — NEVER logout on refresh.
+                // (Previous bug: after first HTTP response, Baileys QR refresh deleted the session.)
+                const sess = sessions.get(sessionId)
+                if (sess) {
+                    sess.lastQr = qrDataUrl
+                    sess.lastQrAt = Date.now()
+                    sess.pairing = true
+                    sess.authenticated = false
                 }
+
+                if (res && !res.headersSent) {
+                    if (responseTimeout) clearTimeout(responseTimeout)
+                    logger.info(`QR code converted to data URL successfully for session ${sessionId}`);
+                    response(res, 200, true, 'QR code received, please scan the QR code.', { qr: qrDataUrl })
+                    return
+                }
+
+                logger.info(`QR refreshed for session ${sessionId} (clients should poll GET /session/qr/:id)`)
             }
         } catch (error) {
             logger.error(`Error in connection.update handler for session ${sessionId}`, { error: error.message, stack: error.stack });
@@ -323,7 +345,48 @@ const getSessionStatus = (sessionId) => {
     return {
         id: sessionId,
         isLegacy: session.isLegacy ?? false,
-        connected: session.authenticated === true
+        connected: session.authenticated === true,
+        pairing: session.pairing === true && session.authenticated !== true,
+        hasQr: !!session.lastQr,
+        qrUpdatedAt: session.lastQrAt ?? null,
+    }
+}
+
+/** Latest QR data-URL for an in-progress pairing session (null if connected / none). */
+const getSessionQr = (sessionId) => {
+    const session = sessions.get(sessionId)
+    if (!session) return null
+    if (session.authenticated === true) {
+        return {
+            id: sessionId,
+            connected: true,
+            pairing: false,
+            qr: null,
+            qrUpdatedAt: null,
+        }
+    }
+    return {
+        id: sessionId,
+        connected: false,
+        pairing: session.pairing === true,
+        qr: session.lastQr ?? null,
+        qrUpdatedAt: session.lastQrAt ?? null,
+    }
+}
+
+/** Force-wipe in-memory + disk session so a fresh QR can be issued. */
+const forceDeleteSession = async (sessionId) => {
+    const session = sessions.get(sessionId)
+    if (session) {
+        try {
+            await session.logout()
+        } catch {
+            try { await session.ws?.close() } catch { /* ignore */ }
+        }
+        deleteSession(sessionId, session.isLegacy ?? false)
+    } else {
+        deleteSession(sessionId, false)
+        deleteSession(sessionId, true)
     }
 }
 
@@ -558,8 +621,10 @@ export {
     createSession,
     getSession,
     deleteSession,
+    forceDeleteSession,
     disconnectSession,
     getSessionStatus,
+    getSessionQr,
     getChatList,
     isExists,
     sendMessage,

@@ -9,6 +9,8 @@ router.get('/find/:id', controller.find)
 
 router.get('/status/:id', controller.status)
 
+router.get('/qr/:id', controller.qr)
+
 router.post('/add', body('id').notEmpty(), body('isLegacy').notEmpty(), requestValidator, controller.add)
 
 router.post('/disconnect/:id', controller.disconnect)
