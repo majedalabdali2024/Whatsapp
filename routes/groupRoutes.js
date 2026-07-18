@@ -12,6 +12,15 @@ router.get('/get', query('id').notEmpty(), requestValidator, sessionValidator, c
 router.get('/get/:jid', query('id').notEmpty(), requestValidator, sessionValidator, getMessages)
 
 router.post(
+    '/resolve-invite',
+    query('id').notEmpty(),
+    body('invite').notEmpty(),
+    requestValidator,
+    sessionValidator,
+    controller.resolveInvite
+)
+
+router.post(
     '/send',
     query('id').notEmpty(),
     body('receiver').notEmpty(),

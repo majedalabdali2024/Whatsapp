@@ -409,10 +409,55 @@ const disconnectSession = async (sessionId) => {
 
 const getChatList = (sessionId, isGroup = false) => {
     const filter = isGroup ? '@g.us' : '@s.whatsapp.net'
+    const session = getSession(sessionId)
+    if (!session) return []
 
-    return getSession(sessionId).store.chats.filter((chat) => {
-        return chat.id.endsWith(filter)
-    })
+    // Prefer in-memory store when available
+    try {
+        const chats = session.store?.chats
+        if (chats && typeof chats.filter === 'function') {
+            return chats.filter((chat) => chat.id?.endsWith(filter))
+        }
+    } catch {
+        /* fall through */
+    }
+    return []
+}
+
+/** List groups the linked account participates in (works without store). */
+const fetchParticipatingGroups = async (sessionId) => {
+    const session = getSession(sessionId)
+    if (!session) return []
+    if (typeof session.groupFetchAllParticipating !== 'function') {
+        return getChatList(sessionId, true)
+    }
+    const map = await session.groupFetchAllParticipating()
+    return Object.values(map || {}).map((g) => ({
+        id: g.id,
+        name: g.subject || g.name || g.id,
+        subject: g.subject || '',
+        size: g.size || (g.participants ? g.participants.length : 0),
+    }))
+}
+
+/** Resolve chat.whatsapp.com invite URL/code -> group JID */
+const resolveGroupInvite = async (sessionId, inviteInput) => {
+    const session = getSession(sessionId)
+    if (!session) throw new Error('Session not found')
+    let code = String(inviteInput || '').trim()
+    const m = code.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/i)
+    if (m) code = m[1]
+    code = code.replace(/^\//, '').split('?')[0].trim()
+    if (!code) throw new Error('Invalid invite code')
+    if (typeof session.groupGetInviteInfo !== 'function') {
+        throw new Error('Invite resolve not supported')
+    }
+    const info = await session.groupGetInviteInfo(code)
+    return {
+        id: info.id,
+        name: info.subject || info.name || info.id,
+        subject: info.subject || '',
+    }
 }
 
 /**
@@ -626,6 +671,8 @@ export {
     getSessionStatus,
     getSessionQr,
     getChatList,
+    fetchParticipatingGroups,
+    resolveGroupInvite,
     isExists,
     sendMessage,
     sendMediaMessage,
