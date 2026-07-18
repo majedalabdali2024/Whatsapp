@@ -1,5 +1,18 @@
-import { getSession, getChatList, isExists, sendMessage, formatPhone,sendMediaMessage } from './../whatsapp.js'
+import { getSession, getChatList, isExists, sendMessage, formatPhone, formatGroup, sendMediaMessage } from './../whatsapp.js'
 import response from './../response.js'
+
+/** Phone or WhatsApp group JID (@g.us). */
+const resolveReceiver = (raw) => {
+    const s = String(raw ?? '').trim()
+    if (s.endsWith('@g.us') || /@g\.us$/i.test(s)) {
+        return { jid: formatGroup(s), isGroup: true }
+    }
+    // Also accept bare group id like 1203630...-... without suffix if contains hyphen typical of groups
+    if (/^\d{10,}-\d+$/.test(s)) {
+        return { jid: formatGroup(s), isGroup: true }
+    }
+    return { jid: formatPhone(s), isGroup: false }
+}
 
 const getList = (req, res) => {
     return response(res, 200, true, '', getChatList(res.locals.sessionId))
@@ -7,46 +20,47 @@ const getList = (req, res) => {
 
 const send = async (req, res) => {
     const session = getSession(res.locals.sessionId)
-    const receiver = formatPhone(req.body.receiver)
+    const { jid, isGroup } = resolveReceiver(req.body.receiver)
     const { message } = req.body
 
     try {
-        const exists = await isExists(session, receiver)
+        const exists = await isExists(session, jid, isGroup)
 
         if (!exists) {
-            return response(res, 400, false, 'The receiver number is not exists.')
+            return response(res, 400, false, isGroup ? 'The group is not exists.' : 'The receiver number is not exists.')
         }
 
-        await sendMessage(session, receiver, { text: message })
+        await sendMessage(session, jid, { text: message })
 
         response(res, 200, true, 'The message has been successfully sent.')
     } catch {
         response(res, 500, false, 'Failed to send the message.')
     }
 }
+
 const sendMedia = async (req, res) => {
     const session = getSession(res.locals.sessionId)
-
-    const receiver = formatPhone(req.body.receiver)
+    const { jid, isGroup } = resolveReceiver(req.body.receiver)
     const mimetype = req.body.mimeType
     const filename = req.body.fileName
     const caption = req.body.caption
-    const  message  = req.body.message
+    const message = req.body.message
 
     try {
-        const exists = await isExists(session, receiver)
+        const exists = await isExists(session, jid, isGroup)
 
         if (!exists) {
-            return response(res, 400, false, 'The receiver number is not exists.')
+            return response(res, 400, false, isGroup ? 'The group is not exists.' : 'The receiver number is not exists.')
         }
 
-        await sendMediaMessage(session, receiver,  message ,mimetype , filename ,caption)
+        await sendMediaMessage(session, jid, message, mimetype, filename, caption)
 
         response(res, 200, true, 'The message has been successfully sent.')
     } catch {
         response(res, 500, false, 'Failed to send the message.')
     }
 }
+
 const sendBulk = async (req, res) => {
     const session = getSession(res.locals.sessionId)
     const errors = []
@@ -54,22 +68,21 @@ const sendBulk = async (req, res) => {
     for (const [key, data] of req.body.entries()) {
         if (!data.receiver || !data.message) {
             errors.push(key)
-
             continue
         }
 
-        data.receiver = formatPhone(data.receiver)
+        const { jid, isGroup } = resolveReceiver(data.receiver)
+        data.receiver = jid
 
         try {
-            const exists = await isExists(session, data.receiver)
+            const exists = await isExists(session, jid, isGroup)
 
             if (!exists) {
                 errors.push(key)
-
                 continue
             }
 
-            await sendMessage(session, data.receiver, { text: data.message })
+            await sendMessage(session, jid, { text: data.message })
         } catch {
             errors.push(key)
         }
@@ -90,4 +103,4 @@ const sendBulk = async (req, res) => {
     )
 }
 
-export { getList, send, sendBulk,sendMedia }
+export { getList, send, sendBulk, sendMedia }
