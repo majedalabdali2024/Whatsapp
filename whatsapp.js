@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync, rmSync, mkdirSync } from 'fs'
+import { existsSync, unlinkSync, rmSync, mkdirSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import makeWASocket from '@whiskeysockets/baileys'
 import { useMultiFileAuthState, Browsers, DisconnectReason, delay, fetchLatestBaileysVersion } from '@whiskeysockets/baileys'
@@ -654,11 +654,51 @@ const init = () => {
         logger.info('Created sessions directory');
     }
 
-    // Note: Sessions are NOT auto-restored on startup.
-    // Saved credential files are preserved so that when the user clicks "Connect",
-    // Baileys can auto-authenticate from saved creds without requiring a new QR scan.
-    // But sessions are only created when explicitly requested via the API.
+    // By default sessions are created on demand: when a client calls POST /session/add,
+    // Baileys re-authenticates from the saved creds without a new QR scan.
+    // With AUTO_RESTORE_SESSIONS=true, paired sessions reconnect on startup instead,
+    // so sending keeps working after a restart without anyone calling /session/add.
+    if (process.env.AUTO_RESTORE_SESSIONS === 'true') {
+        restoreSessions()
+        return
+    }
     logger.info('Initialization complete (sessions will be created on demand)');
+}
+
+/** Reconnects every session that finished pairing (its creds.json has a registered account). */
+const restoreSessions = () => {
+    let entries = []
+    try {
+        entries = readdirSync(SESSIONS_ROOT, { withFileTypes: true })
+    } catch (error) {
+        logger.error('Failed to read sessions directory for restore', { error: error.message });
+        return
+    }
+
+    const paired = entries
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name.match(/^(md|legacy)_(.+)\.json$/))
+        .filter(Boolean)
+        .filter(([name]) => {
+            try {
+                const creds = JSON.parse(readFileSync(join(SESSIONS_ROOT, name, 'creds.json'), 'utf8'))
+                return Boolean(creds?.me?.id)
+            } catch {
+                return false
+            }
+        })
+
+    logger.info(`Restoring ${paired.length} saved session(s)`, { sessions: paired.map(([, , id]) => id) });
+
+    paired.forEach(([, kind, sessionId], i) => {
+        // Stagger connections so several sessions don't hit WhatsApp at the same instant
+        setTimeout(() => {
+            if (isSessionExists(sessionId)) return
+            createSession(sessionId, kind === 'legacy').catch((error) => {
+                logger.error(`Failed to restore session ${sessionId}`, { error: error.message });
+            })
+        }, i * 2000)
+    })
 }
 
 export {
