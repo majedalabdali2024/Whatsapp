@@ -1,5 +1,24 @@
 import { getSession, getChatList, isExists, sendMessage, formatPhone, formatGroup, sendMediaMessage } from './../whatsapp.js'
 import response from './../response.js'
+import logger from './../logger.js'
+import { enqueue, setLogger } from './../sendQueue.js'
+
+setLogger(logger)
+
+/**
+ * يضع الإرسال في طابور الجلسة (فاصل MIN_SEND_INTERVAL_MS بين الرسائل) ويعود فورًا.
+ * نأخذ الجلسة وقت الإرسال الفعلي لأن إعادة الاتصال تستبدل كائن الجلسة.
+ */
+const queueSend = (sessionId, jid, doSend) =>
+    enqueue(
+        sessionId,
+        async () => {
+            const session = getSession(sessionId)
+            if (!session) throw new Error('Session not found at send time')
+            await doSend(session)
+        },
+        { receiver: jid }
+    )
 
 /** Phone or WhatsApp group JID (@g.us). */
 const resolveReceiver = (raw) => {
@@ -30,9 +49,11 @@ const send = async (req, res) => {
             return response(res, 400, false, isGroup ? 'The group is not exists.' : 'The receiver number is not exists.')
         }
 
-        await sendMessage(session, jid, { text: message })
+        const { position, etaSeconds } = queueSend(res.locals.sessionId, jid, (s) =>
+            sendMessage(s, jid, { text: message })
+        )
 
-        response(res, 200, true, 'The message has been successfully sent.')
+        response(res, 200, true, 'The message has been successfully sent.', { queued: true, position, etaSeconds })
     } catch {
         response(res, 500, false, 'Failed to send the message.')
     }
@@ -53,9 +74,11 @@ const sendMedia = async (req, res) => {
             return response(res, 400, false, isGroup ? 'The group is not exists.' : 'The receiver number is not exists.')
         }
 
-        await sendMediaMessage(session, jid, message, mimetype, filename, caption)
+        const { position, etaSeconds } = queueSend(res.locals.sessionId, jid, (s) =>
+            sendMediaMessage(s, jid, message, mimetype, filename, caption)
+        )
 
-        response(res, 200, true, 'The message has been successfully sent.')
+        response(res, 200, true, 'The message has been successfully sent.', { queued: true, position, etaSeconds })
     } catch {
         response(res, 500, false, 'Failed to send the message.')
     }
@@ -64,6 +87,7 @@ const sendMedia = async (req, res) => {
 const sendBulk = async (req, res) => {
     const session = getSession(res.locals.sessionId)
     const errors = []
+    let queued = 0
 
     for (const [key, data] of req.body.entries()) {
         if (!data.receiver || !data.message) {
@@ -82,14 +106,16 @@ const sendBulk = async (req, res) => {
                 continue
             }
 
-            await sendMessage(session, jid, { text: data.message })
+            const text = data.message
+            queueSend(res.locals.sessionId, jid, (s) => sendMessage(s, jid, { text }))
+            queued++
         } catch {
             errors.push(key)
         }
     }
 
     if (errors.length === 0) {
-        return response(res, 200, true, 'All messages has been successfully sent.')
+        return response(res, 200, true, 'All messages has been successfully sent.', { queued })
     }
 
     const isAllFailed = errors.length === req.body.length
@@ -99,7 +125,7 @@ const sendBulk = async (req, res) => {
         isAllFailed ? 500 : 200,
         !isAllFailed,
         isAllFailed ? 'Failed to send all messages.' : 'Some messages has been successfully sent.',
-        { errors }
+        { errors, queued }
     )
 }
 

@@ -10,6 +10,25 @@ import logger from './logger.js'
 const sessions = new Map()
 const retries = new Map()
 
+/**
+ * Recently sent messages (id -> proto message), so Baileys can re-encrypt and resend them
+ * when a recipient's phone fails to decrypt and asks for a retry. Without `getMessage`
+ * the recipient stays on "Waiting for this message. This may take a while".
+ */
+const SENT_CACHE_MAX = 2000
+const sentMessages = new Map()
+
+const rememberSent = (result) => {
+    const id = result?.key?.id
+    if (!id || !result.message) return
+    sentMessages.set(id, result.message)
+    if (sentMessages.size > SENT_CACHE_MAX) {
+        sentMessages.delete(sentMessages.keys().next().value)
+    }
+}
+
+const getMessage = async (key) => sentMessages.get(key?.id)
+
 /** مجلد جذر جلسات Baileys — على Railway اربط Volume واضبط WHATSAPP_SESSIONS_PATH=/data/sessions */
 const SESSIONS_ROOT = process.env.WHATSAPP_SESSIONS_PATH
     ? process.env.WHATSAPP_SESSIONS_PATH.replace(/\/$/, '')
@@ -82,6 +101,7 @@ const createSession = async (sessionId, isLegacy = false, res = null) => {
         keepAliveIntervalMs: 30000,
         qrTimeout: qrTimeoutMs,
         browser: ['Chrome (Windows)', 'Chrome', '130.0.0.0'],
+        getMessage,
     }
 
     /**
@@ -494,6 +514,7 @@ const sendMessage = async (session, receiver, message) => {
         await delay(1000)
 
         const result = await session.sendMessage(receiver, message)
+        rememberSent(result)
         logger.info('Message sent successfully', { receiver, messageId: result?.key?.id });
         return result
     } catch (error) {
@@ -514,6 +535,7 @@ const sendMediaMessage = async (session, receiver, messageBase64 ,mimetype , fil
             fileName: filename ,
             caption: caption
         });
+        rememberSent(result)
 
         logger.info('Media message sent successfully', { receiver, filename, messageId: result?.key?.id });
         return result;

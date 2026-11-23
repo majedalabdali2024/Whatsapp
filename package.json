@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node --max-old-space-size=400 .",
     "dev": "node . --dev",
+    "test": "node --test test/*.test.js",
     "deploy": "npm run deploy:prod",
     "deploy:prod": "powershell -ExecutionPolicy Bypass -File ./deployment/publish-whatsapp.ps1",
     "deploy:staging": "powershell -ExecutionPolicy Bypass -File ./deployment/publish-whatsapp.ps1 -Environment Staging",

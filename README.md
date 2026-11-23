@@ -22,7 +22,24 @@ MAX_RETRIES=5
 
 # Reconnect Interval (in Milliseconds)
 RECONNECT_INTERVAL=5000
+
+# Minimum gap between two outgoing messages on the same session (in Milliseconds, default 15000)
+MIN_SEND_INTERVAL_MS=15000
 ```
+
+## Send queue / message spacing
+
+To reduce the risk of the number being banned, outgoing messages are never sent back-to-back.
+`/chat/send`, `/chat/send-media` and `/chat/send-bulk` validate the receiver, put the message in a
+**per-session FIFO queue** and return `200` immediately with `data: { queued: true, position, etaSeconds }`
+(`send-bulk` returns `data.queued` = number queued). A background worker sends each message at least
+`MIN_SEND_INTERVAL_MS` (default **15000 ms**) after the previous one on the **same** session; different
+sessions/numbers never wait for each other. A failed send is logged and the queue continues.
+
+**The queue is in memory only:** messages still waiting when the service restarts or is redeployed are
+lost (the caller already got `200`). Avoid redeploying while a large batch is being sent.
+
+Run the tests with `npm test`.
 
 ## Usage
 
