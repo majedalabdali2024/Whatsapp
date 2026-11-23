@@ -1,3 +1,4 @@
+import './redactSignalLogs.js';
 import startApp from './startApp.js';
 
 // سجّل معالجات الأخطاء قبل بدء التطبيق

@@ -173,7 +173,7 @@ const createSession = async (sessionId, isLegacy = false, res = null) => {
 
             } else {
                 try {
-                    await wa.sendReadReceipt(message.key.remoteJid, message.key.participant, [message.key.id])
+                    await wa.readMessages([message.key])
                     logger.debug(`Sent read receipt for session ${sessionId}`);
                 } catch (error) {
                     logger.error(`Failed to send read receipt for session ${sessionId}`, { error: error.message });
